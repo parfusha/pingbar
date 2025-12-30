@@ -1,0 +1,65 @@
+name: build-pingbar-intel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15-intel  # Intel runner (x86_64)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show environment
+        run: |
+          uname -m
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Build (SPM) for macOS 13 compatibility
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+        run: |
+          swift build -c release
+
+      - name: Create PingBar.app bundle
+        run: |
+          APP="PingBar.app"
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+
+          # 1) бинарник из SPM
+          cp -f ".build/release/PingBar" "$APP/Contents/MacOS/PingBar"
+          chmod +x "$APP/Contents/MacOS/PingBar"
+
+          # 2) Info.plist (если в репо лежит в корне)
+          if [ -f "Info.plist" ]; then
+            cp -f "Info.plist" "$APP/Contents/Info.plist"
+          else
+            echo "Info.plist not found in repo root" >&2
+            exit 1
+          fi
+
+          # 3) иконка (если есть)
+          if [ -f "PingBar.icns" ]; then
+            cp -f "PingBar.icns" "$APP/Contents/Resources/PingBar.icns"
+          fi
+
+          # 4) ad-hoc подпись (чтобы меньше было проблем при переносе)
+          codesign --force --deep --sign - "$APP" || true
+
+      - name: Verify arch
+        run: |
+          file "PingBar.app/Contents/MacOS/PingBar"
+
+      - name: Zip app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent "PingBar.app" "PingBar-intel.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PingBar-intel-x86_64
+          path: PingBar-intel.zip
+          retention-days: 30
